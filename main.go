@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v1"
@@ -24,6 +25,7 @@ type conf struct {
 	DingDingURL    string `yaml:"dingdingurl"`
 	DingDingSecret string `yaml:"secretkey"`
 	FileName       string `yaml:"filename"`
+	System         string `yaml:"system`
 	MonitorString  string `yaml:"monitorString"`
 }
 
@@ -39,18 +41,17 @@ func (c *conf) getConf() *conf {
 	return c
 }
 
-func processTask(line []byte, config *conf) {
-	// 	os.Stdout.Write(line)
-	//fmt.Println(string(line))
+func processTask(system string, line []byte, config *conf) {
 	re := regexp.MustCompile(config.MonitorString)
 	result := re.Find(line)
 	if matched, _ := regexp.MatchString(config.MonitorString, string(line)); matched {
+		fmt.Println("matched", string(line))
 		fmt.Println("matched", string(result))
-		sendDingDingMessage(string(result), config.DingDingURL, config.DingDingSecret)
+		go sendDingDingMessage(system, strings.Replace(string(line), "\"", "'", -1), config.DingDingURL, config.DingDingSecret)
 	}
 }
 
-func fileMonitoring(filePth string, hookfn func(line []byte, config *conf), config *conf) {
+func fileMonitoring(system, filePth string, hookfn func(system string, line []byte, config *conf), config *conf) {
 	f, err := os.Open(filePth)
 	if err != nil {
 		log.Fatalln(err)
@@ -71,7 +72,7 @@ func fileMonitoring(filePth string, hookfn func(line []byte, config *conf), conf
 			log.Fatalln(err)
 
 		}
-		go hookfn(line, config)
+		go hookfn(system, line, config)
 	}
 }
 
@@ -81,14 +82,17 @@ func hmacSha256(stringToSign string, secret string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-func sendDingDingMessage(content string, dingdingURL string, secretKey string) {
+func sendDingDingMessage(system, content string, dingdingURL string, secretKey string) {
 
 	timestamp := time.Now().UnixNano() / 1e6
 	stringToSign := fmt.Sprintf("%d\n%s", timestamp, secretKey)
 	sign := hmacSha256(stringToSign, secretKey)
 
-	data := `{"msgtype":"markdown","markdown":{"title":"系统异常","text":"%s"},"at":{"atMobiles":[],"isAtAll":false}}`
-	fmtDat := fmt.Sprintf(data, content)
+	// data := `{"msgtype":"markdown","markdown":{"title":"%s","text":"%s%s"},"at":{"atMobiles":[],"isAtAll":false}}`
+	// headData := fmt.Sprintf("## %s\n", system)
+	//fmtDat := fmt.Sprintf(data, system, headData, content)
+	data := `{"msgtype":"markdown","markdown":{"title":"%s","text":"### system: %s \n\n%s"},"at":{"atMobiles":[],"isAtAll":false}}`
+	fmtDat := fmt.Sprintf(data, system, system, content)
 
 	var jsonStr = []byte(fmtDat)
 	buffer := bytes.NewBuffer(jsonStr)
@@ -115,5 +119,8 @@ func sendDingDingMessage(content string, dingdingURL string, secretKey string) {
 func main() {
 	info := conf{}
 	config := info.getConf()
-	fileMonitoring("./tmp/test.log", processTask, config)
+	fileMonitoring(config.System, config.FileName, processTask, config)
+	// s := `2021-06-19 17:50:54.104 ERROR 21771 --- [-8082-exec-7089] c.j.r.c.e.ExceptionControllerAdvice :"" 用户未启用，请启用后再登录`
+	// newS := strings.Replace(s, "\"", "'", -1)
+	// fmt.Println(newS)
 }
